@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
+import androidx.camera.view.PreviewView
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
@@ -112,18 +113,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Start camera preview
-     */
+    // Start camera preview
     private fun startCameraPreview() {
         val surfaceProvider = binding.previewView.surfaceProvider
         cameraViewModel.startCamera(this, this, surfaceProvider)
 
         // Setup ARCore with camera texture
-        binding.previewView.previewStreamState.observe(this) { state ->
-            if (state == Preview.StreamState.STREAMING) {
-                Timber.d("Camera preview is streaming")
-            }
+        binding.previewView.post {
+            Timber.d("Camera preview is ready")
         }
     }
 
