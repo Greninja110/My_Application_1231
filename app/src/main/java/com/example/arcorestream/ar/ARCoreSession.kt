@@ -32,24 +32,34 @@ class ARCoreSession @Inject constructor() : Closeable {
     /**
      * Initializes the AR session with the activity context
      */
-    fun initialize(activity: Activity) {
+    // In ARCoreSession.kt, update the initialize method:
+
+    fun initialize(activity: Activity): Boolean {
         try {
-            // Check AR availability
-            if (ArCoreApk.getInstance().checkAvailability(activity) != ArCoreApk.Availability.SUPPORTED_INSTALLED) {
-                Timber.e("ARCore not installed or not supported")
-                errorCallback?.invoke(Exception("ARCore not installed or not supported"))
-                return
+            // Check AR availability before creating session
+            val availability = ArCoreApk.getInstance().checkAvailability(activity)
+
+            if (availability != ArCoreApk.Availability.SUPPORTED_INSTALLED) {
+                Timber.e("ARCore not installed or not supported: $availability")
+                errorCallback?.invoke(Exception("ARCore not available: $availability"))
+                return false
             }
 
-            if (session == null) {
+            // Create session safely
+            try {
                 session = Session(activity)
-                Timber.d("ARCore session created")
+                Timber.d("ARCore session created successfully")
+                configureSession()
+                return true
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to create ARCore session")
+                errorCallback?.invoke(e)
+                return false
             }
-
-            configureSession()
         } catch (e: Exception) {
-            Timber.e(e, "Failed to initialize ARCore session")
+            Timber.e(e, "Fatal error initializing ARCore")
             errorCallback?.invoke(e)
+            return false
         }
     }
 

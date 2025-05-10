@@ -45,6 +45,8 @@ class MainActivity : AppCompatActivity() {
         Manifest.permission.WRITE_EXTERNAL_STORAGE
     )
 
+    // Open MainActivity.kt and replace the onCreate method with this improved version:
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -55,8 +57,16 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Check ARCore availability
-        checkARCoreAvailability()
+        // Set up UI listeners first - these don't require permissions
+        setupUIListeners()
+
+        // Initialize Timber for logging
+        if (BuildConfig.DEBUG) {
+            Timber.plant(Timber.DebugTree())
+        }
+
+        // Show loading state
+        binding.statusText.text = "Checking permissions..."
 
         // Request permissions
         if (!allPermissionsGranted()) {
@@ -64,12 +74,10 @@ class MainActivity : AppCompatActivity() {
                 this, REQUIRED_PERMISSIONS, PERMISSIONS_REQUEST_CODE
             )
         } else {
-            // Initialize components
+            // Initialize components only after permissions
+            binding.statusText.text = "Initializing..."
             initializeComponents()
         }
-
-        // Set up UI listeners
-        setupUIListeners()
 
         // Observe view model state
         observeViewModelState()

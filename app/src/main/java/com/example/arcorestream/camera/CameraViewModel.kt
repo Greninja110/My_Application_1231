@@ -74,18 +74,27 @@ class CameraViewModel @Inject constructor(
     /**
      * Initialize camera system
      */
+    // In CameraViewModel.kt, update the initCamera method:
+
     fun initCamera(context: Context) {
-        cameraManager.init(
-            context = context,
-            onSuccess = {
-                _isCameraReady.value = true
-                Timber.d("Camera initialized successfully")
-            },
-            onError = { e ->
-                _errorMessage.value = "Failed to initialize camera: ${e.message}"
-                Timber.e(e, "Failed to initialize camera")
+        viewModelScope.launch {
+            try {
+                cameraManager.init(
+                    context = context,
+                    onSuccess = {
+                        _isCameraReady.value = true
+                        Timber.d("Camera initialized successfully")
+                    },
+                    onError = { e ->
+                        _errorMessage.value = "Failed to initialize camera: ${e.message}"
+                        Timber.e(e, "Failed to initialize camera")
+                    }
+                )
+            } catch (e: Exception) {
+                Timber.e(e, "Exception during camera initialization: ${e.message}")
+                _errorMessage.value = "Camera initialization error: ${e.message}"
             }
-        )
+        }
     }
 
     /**

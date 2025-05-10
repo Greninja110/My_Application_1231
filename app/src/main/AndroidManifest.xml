@@ -59,6 +59,22 @@
             </intent-filter>
         </activity>
 
+        <!-- Debug Activity for diagnostics -->
+        <activity
+            android:name=".DebugActivity"
+            android:exported="true"
+            android:label="AR Debug"
+            android:theme="@style/Theme.ARCoreStream">
+            <!-- To make this the main activity for testing, uncomment these lines and comment out
+                 the intent-filter in MainActivity above -->
+            <!--
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            -->
+        </activity>
+
         <service
             android:name=".service.StreamingService"
             android:foregroundServiceType="camera|microphone"
