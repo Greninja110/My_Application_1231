@@ -1,3 +1,4 @@
+System.setProperty("android.disableJdkImageTransform", "true")
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -6,6 +7,7 @@ plugins {
 }
 
 android {
+    buildToolsVersion = "34.0.0"
     namespace = "com.example.arcorestream"
     compileSdk = 34
 
@@ -41,9 +43,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
-    kotlinOptions {
-        jvmTarget = "17"
+    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+        kotlinOptions {
+            jvmTarget = "17"
+        }
     }
 }
 
