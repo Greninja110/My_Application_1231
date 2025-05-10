@@ -1,3 +1,4 @@
+@Suppress("DSL_SCOPE_VIOLATION")
 System.setProperty("android.disableJdkImageTransform", "true")
 plugins {
     id("com.android.application")
