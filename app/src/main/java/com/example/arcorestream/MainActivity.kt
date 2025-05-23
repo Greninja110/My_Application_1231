@@ -17,6 +17,7 @@ import com.example.arcorestream.databinding.ActivityMainBinding
 import com.example.arcorestream.ui.SettingsDialog
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.Session
+import com.google.ar.core.exceptions.UnavailableException
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -45,10 +46,14 @@ class MainActivity : AppCompatActivity() {
         Manifest.permission.WRITE_EXTERNAL_STORAGE
     )
 
-    // Open MainActivity.kt and replace the onCreate method with this improved version:
+    // ARCore installation request code
+    private val AR_CORE_INSTALL_REQUEST = 102
+    private var installRequested = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        Timber.d("MainActivity onCreate")
 
         // Keep screen on during streaming
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -60,13 +65,9 @@ class MainActivity : AppCompatActivity() {
         // Set up UI listeners first - these don't require permissions
         setupUIListeners()
 
-        // Initialize Timber for logging
-        if (BuildConfig.DEBUG) {
-            Timber.plant(Timber.DebugTree())
-        }
-
         // Show loading state
         binding.statusText.text = "Checking permissions..."
+        binding.arStatusText.text = "ARCore: Checking..."
 
         // Request permissions
         if (!allPermissionsGranted()) {
@@ -74,9 +75,8 @@ class MainActivity : AppCompatActivity() {
                 this, REQUIRED_PERMISSIONS, PERMISSIONS_REQUEST_CODE
             )
         } else {
-            // Initialize components only after permissions
-            binding.statusText.text = "Initializing..."
-            initializeComponents()
+            // Check ARCore availability first
+            checkARCoreAndInitialize()
         }
 
         // Observe view model state
@@ -84,17 +84,72 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Check if ARCore is available on this device
+     * Check ARCore availability and initialize components
      */
-    private fun checkARCoreAvailability() {
-        val availability = ArCoreApk.getInstance().checkAvailability(this)
-        if (availability != ArCoreApk.Availability.SUPPORTED_INSTALLED) {
+    private fun checkARCoreAndInitialize() {
+        binding.statusText.text = "Checking ARCore..."
+
+        try {
+            when (ArCoreApk.getInstance().checkAvailability(this)) {
+                ArCoreApk.Availability.SUPPORTED_INSTALLED -> {
+                    Timber.d("ARCore is supported and installed")
+                    binding.arStatusText.text = "ARCore: Ready"
+                    initializeComponents()
+                }
+                ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD,
+                ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED -> {
+                    // Request installation
+                    if (!installRequested) {
+                        installRequested = true
+                        requestARCoreInstall()
+                    }
+                }
+                else -> {
+                    Timber.e("ARCore not supported on this device")
+                    binding.arStatusText.text = "ARCore: Not Supported"
+                    Toast.makeText(
+                        this,
+                        "ARCore is not supported on this device",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    // Still allow camera streaming without AR
+                    initializeComponents()
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error checking ARCore availability")
+            binding.arStatusText.text = "ARCore: Error"
+            // Still allow camera streaming without AR
+            initializeComponents()
+        }
+    }
+
+    /**
+     * Request ARCore installation
+     */
+    private fun requestARCoreInstall() {
+        try {
+            val installStatus = ArCoreApk.getInstance().requestInstall(this, !installRequested)
+            when (installStatus) {
+                ArCoreApk.InstallStatus.INSTALL_REQUESTED -> {
+                    binding.arStatusText.text = "ARCore: Installing..."
+                    // Installation requested, will return to onResume after install
+                }
+                ArCoreApk.InstallStatus.INSTALLED -> {
+                    binding.arStatusText.text = "ARCore: Ready"
+                    initializeComponents()
+                }
+            }
+        } catch (e: UnavailableException) {
+            Timber.e(e, "ARCore installation failed")
+            binding.arStatusText.text = "ARCore: Install Failed"
             Toast.makeText(
                 this,
-                "ARCore not available. Please install ARCore from Play Store.",
+                "Failed to install ARCore",
                 Toast.LENGTH_LONG
             ).show()
-            Timber.e("ARCore not available: $availability")
+            // Still allow camera streaming without AR
+            initializeComponents()
         }
     }
 
@@ -102,22 +157,40 @@ class MainActivity : AppCompatActivity() {
      * Initialize ARCore and camera components
      */
     private fun initializeComponents() {
-        // Initialize ARCore session
-        arCoreSession.initialize(this)
-        arCoreSession.setErrorCallback { e ->
-            Timber.e(e, "ARCore error")
-            Toast.makeText(this, "ARCore error: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
+        binding.statusText.text = "Initializing..."
 
-        // Initialize camera
-        cameraViewModel.initCamera(this)
+        try {
+            // Initialize ARCore session
+            val arInitialized = arCoreSession.initialize(this)
+            if (arInitialized) {
+                binding.arStatusText.text = "ARCore: Initialized"
+                arCoreSession.setErrorCallback { e ->
+                    Timber.e(e, "ARCore error")
+                    runOnUiThread {
+                        Toast.makeText(this, "ARCore error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } else {
+                binding.arStatusText.text = "ARCore: Not Available"
+            }
 
-        // Bind to streaming service
-        cameraViewModel.bindService(this)
+            // Initialize camera
+            cameraViewModel.initCamera(this)
 
-        // Create the camera preview surface
-        binding.previewView.post {
-            startCameraPreview()
+            // Bind to streaming service
+            cameraViewModel.bindService(this)
+
+            // Create the camera preview surface
+            binding.previewView.post {
+                startCameraPreview()
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error initializing components")
+            Toast.makeText(
+                this,
+                "Initialization error: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -129,6 +202,7 @@ class MainActivity : AppCompatActivity() {
         // Setup ARCore with camera texture
         binding.previewView.post {
             Timber.d("Camera preview is ready")
+            binding.statusText.text = "Ready"
         }
     }
 
@@ -225,25 +299,39 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERMISSIONS_REQUEST_CODE) {
             if (allPermissionsGranted()) {
-                initializeComponents()
+                checkARCoreAndInitialize()
             } else {
                 Toast.makeText(
                     this,
                     "Permissions not granted. The app may not function correctly.",
                     Toast.LENGTH_LONG
                 ).show()
+                binding.statusText.text = "Permissions Denied"
             }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        arCoreSession.resume()
+
+        // Resume ARCore if it was initialized
+        if (::arCoreSession.isInitialized) {
+            arCoreSession.resume()
+        }
+
+        // Check if we're returning from ARCore installation
+        if (installRequested) {
+            checkARCoreAndInitialize()
+        }
     }
 
     override fun onPause() {
         super.onPause()
-        arCoreSession.pause()
+
+        // Pause ARCore if it was initialized
+        if (::arCoreSession.isInitialized) {
+            arCoreSession.pause()
+        }
     }
 
     override fun onDestroy() {

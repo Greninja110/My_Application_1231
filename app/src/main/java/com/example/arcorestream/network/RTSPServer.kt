@@ -9,11 +9,12 @@ import java.net.NetworkInterface
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 
 @Singleton
 class RTSPServer @Inject constructor(
-    private val context: Context
+    @ApplicationContext private val context: Context
 ) {
     private val isStarted = AtomicBoolean(false)
 

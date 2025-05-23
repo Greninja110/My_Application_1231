@@ -255,7 +255,6 @@ class StreamingService : Service() {
 
                     // Prepare data packets
                     val poseData = dataSerializer.serializePose(cameraPose)
-                    val planesData = dataSerializer.serializePlanes(planes)
                     val depthData = depthProcessor.getDepthData()
                     val depthMetadata = depthProcessor.getDepthMetadata()
                     val pointCloud = depthProcessor.getSparsePointCloud(frame)

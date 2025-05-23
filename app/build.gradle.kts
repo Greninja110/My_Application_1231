@@ -8,7 +8,7 @@ plugins {
 }
 
 android {
-    buildToolsVersion = "34.0.0"
+    buildToolsVersion = "35.0.0"
     namespace = "com.example.arcorestream"
     compileSdk = 34
 

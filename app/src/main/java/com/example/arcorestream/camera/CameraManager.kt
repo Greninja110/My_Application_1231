@@ -68,7 +68,6 @@ class CameraManager @Inject constructor() {
 
             // Create preview use case
             previewUseCase = Preview.Builder()
-                .setTargetResolution(targetResolution)
                 .build()
 
             // Set surface provider

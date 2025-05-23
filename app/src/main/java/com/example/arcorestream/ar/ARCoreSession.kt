@@ -4,9 +4,12 @@ import android.app.Activity
 import android.content.Context
 import android.graphics.SurfaceTexture
 import android.media.Image
+import android.opengl.GLES11Ext
+import android.opengl.GLES20
 import android.view.Surface
 import com.google.ar.core.*
 import com.google.ar.core.exceptions.NotYetAvailableException
+import com.google.ar.core.exceptions.UnavailableException
 import timber.log.Timber
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicBoolean
@@ -21,6 +24,7 @@ class ARCoreSession @Inject constructor() : Closeable {
     private var config: Config? = null
     private var cameraTexture: SurfaceTexture? = null
     private var cameraSurface: Surface? = null
+    private var cameraTextureId: Int = -1
 
     // Latest frame data
     private var latestFrame: Frame? = null
@@ -32,24 +36,52 @@ class ARCoreSession @Inject constructor() : Closeable {
     /**
      * Initializes the AR session with the activity context
      */
-    // In ARCoreSession.kt, update the initialize method:
-
     fun initialize(activity: Activity): Boolean {
         try {
-            // Check AR availability before creating session
-            val availability = ArCoreApk.getInstance().checkAvailability(activity)
+            Timber.d("Initializing ARCore session...")
 
-            if (availability != ArCoreApk.Availability.SUPPORTED_INSTALLED) {
-                Timber.e("ARCore not installed or not supported: $availability")
-                errorCallback?.invoke(Exception("ARCore not available: $availability"))
-                return false
+            // Check AR availability before creating session
+            when (ArCoreApk.getInstance().checkAvailability(activity)) {
+                ArCoreApk.Availability.SUPPORTED_INSTALLED -> {
+                    Timber.d("ARCore is supported and installed")
+                }
+                ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD,
+                ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED -> {
+                    // Request ARCore installation
+                    try {
+                        when (ArCoreApk.getInstance().requestInstall(activity, true)) {
+                            ArCoreApk.InstallStatus.INSTALL_REQUESTED -> {
+                                Timber.d("ARCore installation requested")
+                                return false
+                            }
+                            ArCoreApk.InstallStatus.INSTALLED -> {
+                                Timber.d("ARCore installed")
+                            }
+                        }
+                    } catch (e: UnavailableException) {
+                        Timber.e(e, "ARCore installation failed")
+                        errorCallback?.invoke(e)
+                        return false
+                    }
+                }
+                else -> {
+                    Timber.e("ARCore not supported on this device")
+                    errorCallback?.invoke(Exception("ARCore not supported"))
+                    return false
+                }
             }
 
             // Create session safely
             try {
                 session = Session(activity)
                 Timber.d("ARCore session created successfully")
+
+                // Create texture for camera
+                createCameraTexture()
+
+                // Configure session
                 configureSession()
+
                 return true
             } catch (e: Exception) {
                 Timber.e(e, "Failed to create ARCore session")
@@ -64,14 +96,34 @@ class ARCoreSession @Inject constructor() : Closeable {
     }
 
     /**
+     * Creates OpenGL texture for camera feed
+     */
+    private fun createCameraTexture() {
+        val textures = IntArray(1)
+        GLES20.glGenTextures(1, textures, 0)
+        cameraTextureId = textures[0]
+
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, cameraTextureId)
+        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+
+        Timber.d("Created camera texture with ID: $cameraTextureId")
+    }
+
+    /**
      * Configure ARCore session with depth
      */
     private fun configureSession() {
         session?.let { arSession ->
             config = Config(arSession)
 
-            // Enable depth API
-            config?.depthMode = Config.DepthMode.AUTOMATIC
+            // Enable depth API if available
+            if (arSession.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
+                config?.depthMode = Config.DepthMode.AUTOMATIC
+                Timber.d("Depth mode enabled")
+            } else {
+                Timber.w("Depth mode not supported on this device")
+            }
 
             // Enable plane detection
             config?.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
@@ -85,7 +137,12 @@ class ARCoreSession @Inject constructor() : Closeable {
             // Update config
             arSession.configure(config)
 
-            Timber.d("ARCore session configured with depth mode: ${config?.depthMode}")
+            // Set the texture
+            if (cameraTextureId != -1) {
+                arSession.setCameraTextureName(cameraTextureId)
+            }
+
+            Timber.d("ARCore session configured")
         }
     }
 
@@ -94,17 +151,17 @@ class ARCoreSession @Inject constructor() : Closeable {
      */
     fun setCameraTexture(texture: SurfaceTexture) {
         this.cameraTexture = texture
-        if (cameraSurface != null) {
-            cameraSurface?.release()
-        }
+
+        // Clean up old surface
+        cameraSurface?.release()
+
+        // Create new surface
         cameraSurface = Surface(texture)
 
-        // Get the texture name/ID from the texture parameter
-        // Instead of calling detachFromGLContext directly
-        session?.let { session ->
-            // Get the texture ID (should be set when texture is created)
-            val textureId = texture.hashCode() // or another way to get a unique ID
-            session.setCameraTextureName(textureId)
+        // Attach to our texture ID if valid
+        if (cameraTextureId != -1) {
+            texture.attachToGLContext(cameraTextureId)
+            Timber.d("Camera texture attached to GL context")
         }
     }
 
@@ -145,7 +202,7 @@ class ARCoreSession @Inject constructor() : Closeable {
      * Updates and returns the current frame
      */
     fun update(): Frame? {
-        if (isSessionPaused.get()) {
+        if (isSessionPaused.get() || session == null) {
             return null
         }
 
@@ -160,7 +217,9 @@ class ARCoreSession @Inject constructor() : Closeable {
                         depthImage?.close()
 
                         // Try to acquire a new depth image
-                        depthImage = frame.acquireDepthImage16Bits()
+                        if (arSession.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
+                            depthImage = frame.acquireDepthImage16Bits()
+                        }
                     } catch (e: NotYetAvailableException) {
                         // Depth might not be available yet, this is normal
                     } catch (e: Exception) {
@@ -231,6 +290,10 @@ class ARCoreSession @Inject constructor() : Closeable {
         try {
             depthImage?.close()
             cameraSurface?.release()
+
+            // Detach texture if needed
+            cameraTexture?.detachFromGLContext()
+
             session?.close()
 
             depthImage = null

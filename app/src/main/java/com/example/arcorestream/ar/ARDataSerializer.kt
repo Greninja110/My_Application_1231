@@ -78,9 +78,8 @@ class ARDataSerializer @Inject constructor() {
                 jsonPlane.put("extentZ", plane.extentZ)
 
                 // Get polygon if available
-                if (plane.polygon != null) {
+                plane.polygon?.let { polygon ->
                     val polygonArray = JSONArray()
-                    val polygon = plane.polygon
                     for (i in 0 until polygon.limit() step 2) {
                         val vertex = JSONObject()
                         vertex.put("x", polygon[i])

@@ -177,8 +177,9 @@ class DepthDataProcessor @Inject constructor() {
         try {
             // Try to get depth points
             val pointCloud = frame.acquirePointCloud()
-            if (pointCloud == null || pointCloud.points.remaining() == 0) {
+            if (pointCloud.points.remaining() == 0) {
                 Timber.d("No depth points available")
+                pointCloud.release()
                 return null
             }
 
